@@ -411,6 +411,55 @@ impl StellarSaveContract {
         Ok(result)
     }
 
+    /// Retrieves the details of a specific member in a group.
+    ///
+    /// This function loads member profile information from storage for a given
+    /// address within a specific group. It verifies the group exists and that
+    /// the address is a valid member before returning the profile.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `group_id` - The unique identifier of the group
+    /// * `address` - The address of the member to retrieve
+    ///
+    /// # Returns
+    /// * `Ok(MemberProfile)` - The member's profile containing address, group_id, and joined_at timestamp
+    /// * `Err(StellarSaveError::GroupNotFound)` - If the group doesn't exist
+    /// * `Err(StellarSaveError::NotMember)` - If the address is not a member of the group
+    ///
+    /// # Example
+    /// ```ignore
+    /// let member = contract.get_member_details(env, 1, member_address)?;
+    /// assert_eq!(member.group_id, 1);
+    /// assert_eq!(member.address, member_address);
+    /// ```
+    pub fn get_member_details(
+        env: Env,
+        group_id: u64,
+        address: Address,
+    ) -> Result<MemberProfile, StellarSaveError> {
+        // Task 1: Load member from storage
+        // First verify the group exists
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        if !env.storage().persistent().has(&group_key) {
+            // Task 2: Handle not found error - group doesn't exist
+            return Err(StellarSaveError::GroupNotFound);
+        }
+
+        // Build the member profile storage key
+        let member_key = StorageKeyBuilder::member_profile(group_id, address.clone());
+
+        // Retrieve member profile from persistent storage
+        let member_profile: MemberProfile = env.storage()
+            .persistent()
+            .get(&member_key)
+            .ok_or(StellarSaveError::NotMember)?; // Task 2: Handle not found error - member doesn't exist
+
+        // Task 3: Return member struct
+        Ok(member_profile)
+    }
+
+
     /// Retrieves detailed information about a specific member in a savings group.
     ///
     /// This function queries the member profile data for a given address within a specific group.
