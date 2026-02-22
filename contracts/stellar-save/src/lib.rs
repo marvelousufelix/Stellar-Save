@@ -41,9 +41,31 @@ use soroban_sdk::{contract, contractimpl, Env};
 #[contract]
 pub struct StellarSaveContract;
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    pub admin: Address,
+    pub min_contribution: i128,
+    pub max_contribution: i128,
+    pub min_members: u32,
+    pub max_members: u32,
+    pub min_cycle_duration: u64,
+    pub max_cycle_duration: u64,
+}
+
+impl ContractConfig {
+    pub fn validate(&self) -> bool {
+        self.min_contribution > 0 && 
+        self.max_contribution >= self.min_contribution &&
+        self.min_members >= 2 && 
+        self.max_members >= self.min_members &&
+        self.min_cycle_duration > 0 &&
+        self.max_cycle_duration >= self.min_cycle_duration
+    }
+}
+
 #[contractimpl]
 impl StellarSaveContract {
-    // Inside src/lib.rs within impl StellarSaveContract
     fn generate_next_group_id(env: &Env) -> Result<u64, StellarSaveError> {
         let key = StorageKeyBuilder::next_group_id();
         
@@ -77,6 +99,29 @@ impl StellarSaveContract {
         env.storage().persistent().set(&key, &next_id);
         
         Ok(next_id)
+    }
+
+    /// Initializes or updates the global contract configuration.
+    /// Only the current admin can perform this update.
+    pub fn update_config(env: Env, new_config: ContractConfig) -> Result<(), StellarSaveError> {
+        // 1. Validation Logic
+        if !new_config.validate() {
+            return Err(StellarSaveError::InvalidState); 
+        }
+
+        let key = StorageKeyBuilder::contract_config();
+
+        // 2. Admin-only Authorization
+        if let Some(current_config) = env.storage().persistent().get::<_, ContractConfig>(&key) {
+            current_config.admin.require_auth();
+        } else {
+            // First time initialization: caller becomes admin
+            new_config.admin.require_auth();
+        }
+
+        // 3. Save Configuration
+        env.storage().persistent().set(&key, &new_config);
+        Ok(())
     }
 }
 
