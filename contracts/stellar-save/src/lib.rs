@@ -509,6 +509,56 @@ impl StellarSaveContract {
         Ok(member_profile.payout_position)
       
     }
+
+    /// Validates that a recipient is eligible for payout in the current cycle.
+    /// 
+    /// # Arguments
+    /// * `env` - Soroban environment
+    /// * `group_id` - ID of the group
+    /// * `recipient` - Address of the potential recipient
+    /// 
+    /// # Returns
+    /// * `Ok(true)` - Recipient is eligible for payout
+    /// * `Ok(false)` - Recipient is not eligible
+    /// * `Err(StellarSaveError)` - If validation fails
+    pub fn validate_payout_recipient(
+        env: Env,
+        group_id: u64,
+        recipient: Address,
+    ) -> Result<bool, StellarSaveError> {
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        let group = env.storage()
+            .persistent()
+            .get::<_, Group>(&group_key)
+            .ok_or(StellarSaveError::GroupNotFound)?;
+        
+        let member_key = StorageKeyBuilder::member_profile(group_id, recipient.clone());
+        if !env.storage().persistent().has(&member_key) {
+            return Ok(false);
+        }
+        
+        let has_received = Self::has_received_payout(
+            env.clone(),
+            group_id,
+            recipient.clone(),
+        )?;
+        
+        if has_received {
+            return Ok(false);
+        }
+        
+        let payout_position = Self::get_payout_position(
+            env.clone(),
+            group_id,
+            recipient.clone(),
+        )?;
+        
+        if payout_position != group.current_cycle {
+            return Ok(false);
+        }
+        
+        Ok(true)
+    }
   
     /// Returns the number of members in a specific group.
     /// 
@@ -4162,6 +4212,97 @@ mod tests {
         
         let events = env.events().all();
         assert!(events.len() > 0);
+    }
+    
+    #[test]
+    fn test_validate_payout_recipient_not_member() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, StellarSaveContract);
+        let client = StellarSaveContractClient::new(&env, &contract_id);
+        
+        let creator = Address::generate(&env);
+        let non_member = Address::generate(&env);
+        let group_id = client.create_group(&creator, &100, &3600, &3);
+        
+        let result = client.validate_payout_recipient(&group_id, &non_member);
+        assert_eq!(result, false);
+    }
+    
+    #[test]
+    fn test_validate_payout_recipient_already_received() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, StellarSaveContract);
+        let client = StellarSaveContractClient::new(&env, &contract_id);
+        
+        let creator = Address::generate(&env);
+        let member = Address::generate(&env);
+        let group_id = client.create_group(&creator, &100, &3600, &3);
+        
+        client.join_group(&group_id, &creator);
+        client.join_group(&group_id, &member);
+        
+        let recipient_key = StorageKeyBuilder::payout_recipient(group_id, 0);
+        env.storage().persistent().set(&recipient_key, &creator);
+        
+        let result = client.validate_payout_recipient(&group_id, &creator);
+        assert_eq!(result, false);
+    }
+    
+    #[test]
+    fn test_validate_payout_recipient_wrong_position() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, StellarSaveContract);
+        let client = StellarSaveContractClient::new(&env, &contract_id);
+        
+        let creator = Address::generate(&env);
+        let member = Address::generate(&env);
+        let group_id = client.create_group(&creator, &100, &3600, &3);
+        
+        client.join_group(&group_id, &creator);
+        client.join_group(&group_id, &member);
+        
+        let mut group: Group = env.storage().persistent()
+            .get(&StorageKeyBuilder::group_data(group_id))
+            .unwrap();
+        group.current_cycle = 1;
+        env.storage().persistent().set(&StorageKeyBuilder::group_data(group_id), &group);
+        
+        let result = client.validate_payout_recipient(&group_id, &creator);
+        assert_eq!(result, false);
+    }
+    
+    #[test]
+    fn test_validate_payout_recipient_valid() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, StellarSaveContract);
+        let client = StellarSaveContractClient::new(&env, &contract_id);
+        
+        let creator = Address::generate(&env);
+        let member = Address::generate(&env);
+        let group_id = client.create_group(&creator, &100, &3600, &3);
+        
+        client.join_group(&group_id, &creator);
+        client.join_group(&group_id, &member);
+        
+        let result = client.validate_payout_recipient(&group_id, &creator);
+        assert_eq!(result, true);
+    }
+    
+    #[test]
+    fn test_validate_payout_recipient_group_not_found() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, StellarSaveContract);
+        let client = StellarSaveContractClient::new(&env, &contract_id);
+        
+        let member = Address::generate(&env);
+        
+        let result = client.try_validate_payout_recipient(&999, &member);
+        assert_eq!(result, Err(Ok(StellarSaveError::GroupNotFound)));
     }
 }
 
