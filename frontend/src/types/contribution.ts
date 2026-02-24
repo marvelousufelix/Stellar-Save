@@ -14,3 +14,20 @@ export interface ContributionCycle {
   members: Member[]
   targetAmount: number
 }
+
+export type TransactionStatus =
+  | 'idle'
+  | 'confirming'
+  | 'pending'
+  | 'submitting'
+  | 'success'
+  | 'error'
+
+export interface ContributeButtonProps {
+  amount: number
+  cycleId: number
+  walletAddress?: string
+  onSuccess?: (txHash: string) => void
+  onError?: (error: Error) => void
+  disabled?: boolean
+}
