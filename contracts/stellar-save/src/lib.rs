@@ -93,6 +93,15 @@ pub struct MemberProfile {
     pub joined_at: u64,
 }
 
+/// Payout schedule entry containing recipient and payout date
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PayoutScheduleEntry {
+    pub recipient: Address,
+    pub cycle: u32,
+    pub payout_date: u64,
+}
+
 /// Assignment mode for payout positions
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -594,6 +603,62 @@ impl StellarSaveContract {
         }
         
         Ok(total)
+    }
+
+    /// Gets the complete payout schedule with dates for all members.
+    /// 
+    /// # Arguments
+    /// * `env` - Soroban environment
+    /// * `group_id` - ID of the group
+    /// 
+    /// # Returns
+    /// * `Ok(Vec<PayoutScheduleEntry>)` - Schedule with recipient, cycle, and date
+    /// * `Err(StellarSaveError)` - If group doesn't exist or not started
+    pub fn get_payout_schedule(
+        env: Env,
+        group_id: u64,
+    ) -> Result<Vec<PayoutScheduleEntry>, StellarSaveError> {
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        let group = env.storage()
+            .persistent()
+            .get::<_, Group>(&group_key)
+            .ok_or(StellarSaveError::GroupNotFound)?;
+        
+        if !group.started {
+            return Err(StellarSaveError::InvalidState);
+        }
+        
+        let members_key = StorageKeyBuilder::group_members(group_id);
+        let members: Vec<Address> = env.storage()
+            .persistent()
+            .get(&members_key)
+            .ok_or(StellarSaveError::GroupNotFound)?;
+        
+        let mut schedule = Vec::new(&env);
+        
+        for member in members.iter() {
+            let position = Self::get_payout_position(
+                env.clone(),
+                group_id,
+                member.clone(),
+            )?;
+            
+            let payout_date = group.started_at
+                .checked_add(position as u64 * group.cycle_duration)
+                .ok_or(StellarSaveError::Overflow)?
+                .checked_add(group.cycle_duration)
+                .ok_or(StellarSaveError::Overflow)?;
+            
+            let entry = PayoutScheduleEntry {
+                recipient: member,
+                cycle: position,
+                payout_date,
+            };
+            
+            schedule.push_back(entry);
+        }
+        
+        Ok(schedule)
     }
   
     /// Returns the number of members in a specific group.
@@ -4417,6 +4482,86 @@ mod tests {
         let client = StellarSaveContractClient::new(&env, &contract_id);
         
         let result = client.try_get_total_paid_out(&999);
+        assert_eq!(result, Err(Ok(StellarSaveError::GroupNotFound)));
+    }
+    
+    #[test]
+    fn test_get_payout_schedule_not_started() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, StellarSaveContract);
+        let client = StellarSaveContractClient::new(&env, &contract_id);
+        
+        let creator = Address::generate(&env);
+        let group_id = client.create_group(&creator, &100, &3600, &3);
+        
+        let result = client.try_get_payout_schedule(&group_id);
+        assert_eq!(result, Err(Ok(StellarSaveError::InvalidState)));
+    }
+    
+    #[test]
+    fn test_get_payout_schedule_single_member() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, StellarSaveContract);
+        let client = StellarSaveContractClient::new(&env, &contract_id);
+        
+        let creator = Address::generate(&env);
+        let group_id = client.create_group(&creator, &100, &3600, &3);
+        
+        client.join_group(&group_id, &creator);
+        
+        let mut group: Group = env.storage().persistent()
+            .get(&StorageKeyBuilder::group_data(group_id))
+            .unwrap();
+        group.started = true;
+        group.started_at = 1000000;
+        env.storage().persistent().set(&StorageKeyBuilder::group_data(group_id), &group);
+        
+        let schedule = client.get_payout_schedule(&group_id);
+        assert_eq!(schedule.len(), 1);
+        assert_eq!(schedule.get(0).unwrap().cycle, 0);
+        assert_eq!(schedule.get(0).unwrap().payout_date, 1003600);
+    }
+    
+    #[test]
+    fn test_get_payout_schedule_multiple_members() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, StellarSaveContract);
+        let client = StellarSaveContractClient::new(&env, &contract_id);
+        
+        let creator = Address::generate(&env);
+        let member1 = Address::generate(&env);
+        let member2 = Address::generate(&env);
+        let group_id = client.create_group(&creator, &100, &3600, &3);
+        
+        client.join_group(&group_id, &creator);
+        client.join_group(&group_id, &member1);
+        client.join_group(&group_id, &member2);
+        
+        let mut group: Group = env.storage().persistent()
+            .get(&StorageKeyBuilder::group_data(group_id))
+            .unwrap();
+        group.started = true;
+        group.started_at = 1000000;
+        env.storage().persistent().set(&StorageKeyBuilder::group_data(group_id), &group);
+        
+        let schedule = client.get_payout_schedule(&group_id);
+        assert_eq!(schedule.len(), 3);
+        assert_eq!(schedule.get(0).unwrap().payout_date, 1003600);
+        assert_eq!(schedule.get(1).unwrap().payout_date, 1007200);
+        assert_eq!(schedule.get(2).unwrap().payout_date, 1010800);
+    }
+    
+    #[test]
+    fn test_get_payout_schedule_group_not_found() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, StellarSaveContract);
+        let client = StellarSaveContractClient::new(&env, &contract_id);
+        
+        let result = client.try_get_payout_schedule(&999);
         assert_eq!(result, Err(Ok(StellarSaveError::GroupNotFound)));
     }
 }
