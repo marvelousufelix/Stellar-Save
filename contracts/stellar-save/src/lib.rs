@@ -39,7 +39,7 @@ pub use status::StatusError;
 pub use storage::{StorageKey, StorageKeyBuilder};
 pub use pool::{PoolInfo, PoolCalculator};
 pub use events::EventEmitter;
-pub use helpers::format_group_id;
+pub use helpers::{format_group_id, is_cycle_deadline_passed};
 use soroban_sdk::{contract, contractimpl, contracttype, Env, Address, Vec, Symbol};
 
 #[contract]
