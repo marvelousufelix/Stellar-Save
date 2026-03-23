@@ -16,3 +16,19 @@ export async function createGroup(data: GroupData): Promise<string> {
   // stub — returns a mock group ID
   return Promise.resolve('mock-group-id');
 }
+
+export interface PublicGroup {
+  id: string;
+  name: string;
+  description?: string;
+  memberCount: number;
+  contributionAmount: number; // in XLM
+  currency: string;
+  status: 'active' | 'completed' | 'pending';
+  createdAt: Date;
+}
+
+export async function fetchGroups(): Promise<PublicGroup[]> {
+  // stub — TODO: replace with actual Soroban contract invocation
+  return Promise.resolve([]);
+}

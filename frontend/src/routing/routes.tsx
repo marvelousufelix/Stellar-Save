@@ -10,6 +10,7 @@ const GroupDetailPage = lazy(() => import("../pages/GroupDetailPage"));
 const ProfilePage = lazy(() => import("../pages/ProfilePage"));
 const SettingsPage = lazy(() => import("../pages/SettingsPage"));
 const CreateGroupPage = lazy(() => import("../pages/CreateGroupPage"));
+const BrowseGroupsPage = lazy(() => import("../pages/BrowseGroupsPage"));
 const NotFoundPage = lazy(() => import("../pages/NotFoundPage"));
 const ErrorPage = lazy(() => import("../pages/ErrorPage"));
 /**
@@ -44,6 +45,13 @@ export const routeConfig: RouteConfig[] = [
     protected: true,
     title: "Create Group - Stellar Save",
     description: "Create a new savings group",
+  },
+  {
+    path: ROUTES.GROUPS_BROWSE,
+    component: BrowseGroupsPage,
+    protected: true,
+    title: "Browse Groups - Stellar Save",
+    description: "Discover and join public savings groups",
   },
   {
     path: ROUTES.GROUP_DETAIL,
