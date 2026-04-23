@@ -1,6 +1,19 @@
 use core::fmt;
 use soroban_sdk::{contracttype, Address};
 
+/// Configuration for the token used by a savings group.
+///
+/// Stored separately from `Group` under `GroupKey::TokenConfig(group_id)` to
+/// preserve backward compatibility with existing serialized groups.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenConfig {
+    /// The SEP-41 token contract address for this group.
+    pub token_address: Address,
+    /// Decimal precision of the token, cached from `decimals()` at group creation.
+    pub token_decimals: u32,
+}
+
 /// Represents the lifecycle states of a savings group.
 ///
 /// Groups progress through these states during their lifetime:
@@ -447,7 +460,6 @@ mod tests {
         let creator = Address::generate(&env);
 
         Group::new(1, creator, 0, 604800, 5, 2, 1234567890);
-        Group::new(1, creator, 0, 604800, 5, 1234567890);
     }
 
     #[test]
@@ -457,7 +469,6 @@ mod tests {
         let creator = Address::generate(&env);
 
         Group::new(1, creator, 10_000_000, 0, 5, 2, 1234567890);
-        Group::new(1, creator, 10_000_000, 0, 5, 1234567890);
     }
 
     #[test]
@@ -467,7 +478,6 @@ mod tests {
         let creator = Address::generate(&env);
 
         Group::new(1, creator, 10_000_000, 604800, 1, 2, 1234567890);
-        Group::new(1, creator, 10_000_000, 604800, 1, 1234567890);
     }
 
     #[test]
@@ -476,7 +486,6 @@ mod tests {
         let creator = Address::generate(&env);
 
         let mut group = Group::new(1, creator, 10_000_000, 604800, 3, 2, 1234567890);
-        let mut group = Group::new(1, creator, 10_000_000, 604800, 3, 1234567890);
 
         assert!(!group.is_complete());
 
@@ -509,20 +518,6 @@ mod tests {
         assert_eq!(group.status, GroupStatus::Active);
 
         group.advance_cycle(&env);
-        let mut group = Group::new(1, creator, 10_000_000, 604800, 3, 1234567890);
-
-        assert_eq!(group.current_cycle, 0);
-        assert!(group.is_active);
-
-        group.advance_cycle();
-        assert_eq!(group.current_cycle, 1);
-        assert!(group.is_active);
-
-        group.advance_cycle();
-        assert_eq!(group.current_cycle, 2);
-        assert!(group.is_active);
-
-        group.advance_cycle();
         assert_eq!(group.current_cycle, 3);
         assert!(!group.is_active); // Auto-deactivated when complete
         assert_eq!(group.status, GroupStatus::Completed); // Status set to Completed
@@ -538,10 +533,6 @@ mod tests {
         group.current_cycle = 2;
 
         group.advance_cycle(&env); // Should panic
-        let mut group = Group::new(1, creator, 10_000_000, 604800, 2, 1234567890);
-        group.current_cycle = 2;
-
-        group.advance_cycle(); // Should panic
     }
 
     #[test]
@@ -557,12 +548,6 @@ mod tests {
         group.deactivate();
         assert!(!group.is_active);
         assert_eq!(group.status, GroupStatus::Active); // Status remains Active when just deactivated
-        let mut group = Group::new(1, creator, 10_000_000, 604800, 3, 1234567890);
-
-        assert!(group.is_active);
-
-        group.deactivate();
-        assert!(!group.is_active);
 
         group.reactivate();
         assert!(group.is_active);

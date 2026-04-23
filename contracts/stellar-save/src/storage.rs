@@ -64,6 +64,10 @@ pub enum GroupKey {
     /// Group status: GROUP_STATUS_{id}
     /// Stores the current GroupStatus for quick status checks.
     Status(u64),
+
+    /// Token configuration: GROUP_TOKEN_CONFIG_{id}
+    /// Stores the TokenConfig (token address + decimals) for a specific group.
+    TokenConfig(u64),
 }
 
 /// Storage keys for member-related data.

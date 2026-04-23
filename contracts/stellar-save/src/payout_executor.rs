@@ -267,27 +267,27 @@ fn calculate_and_validate_payout_amount(
 /// 4. Compare balance >= payout_amount
 ///
 /// # Requirements
-/// Validates Requirements 3.5, 4.4
+/// Verifies the contract has sufficient token balance for the payout.
+/// Uses the group's configured SEP-41 token. Requirements 3.5, 4.4
 fn verify_contract_balance(
     env: &Env,
+    group_id: u64,
     payout_amount: i128,
 ) -> Result<(), StellarSaveError> {
-    // Get the contract's address
-    let _contract_address = env.current_contract_address();
-    
-    // Query the contract's current balance
-    // Note: This is a placeholder implementation
-    // In production, this would query the native token contract:
-    // let native_token = token::Client::new(&env, &native_token_address);
-    // let balance = native_token.balance(&_contract_address);
-    let balance: i128 = 0; // Placeholder
-    
-    // Verify that the contract has sufficient balance to cover the payout
+    let token_config_key = StorageKeyBuilder::group_token_config(group_id);
+    let token_config: crate::group::TokenConfig = env
+        .storage()
+        .persistent()
+        .get(&token_config_key)
+        .ok_or(StellarSaveError::GroupNotFound)?;
+
+    let token_client = soroban_sdk::token::TokenClient::new(env, &token_config.token_address);
+    let contract_address = env.current_contract_address();
+    let balance = token_client.balance(&contract_address);
+
     if balance < payout_amount {
         return Err(StellarSaveError::PayoutFailed);
     }
-    
-    // Balance is sufficient
     Ok(())
 }
 
@@ -327,53 +327,31 @@ fn verify_contract_balance(
 ///
 /// # Requirements
 /// Validates Requirements 4.1, 4.2, 4.3, 10.3, 10.4
+/// Executes the SEP-41 token transfer from the contract to the payout recipient.
+/// Requirements 5.5, 5.6
 fn execute_transfer(
     env: &Env,
+    group_id: u64,
     recipient: &Address,
     amount: i128,
 ) -> Result<(), StellarSaveError> {
-    // Get the contract's address (the source of the transfer)
-    let contract_address = env.current_contract_address();
-    
-    // Validate amount is positive using checked arithmetic
-    // This prevents overflow and ensures we're transferring a valid amount
     if amount <= 0 {
         return Err(StellarSaveError::PayoutFailed);
     }
-    
-    // Validate that the amount doesn't exceed i128::MAX (overflow protection)
-    // This is a defensive check to ensure arithmetic safety
-    if amount > i128::MAX {
-        return Err(StellarSaveError::Overflow);
-    }
-    
-    // Execute the transfer from contract to recipient
-    // Note: This is a placeholder implementation for MVP
-    // In production, this would use the Stellar token API:
-    //
-    // // Get the native token contract address (XLM)
-    // let native_token_address = get_native_token_address(env);
-    // 
-    // // Create a token client for the native asset
-    // let token = token::Client::new(env, &native_token_address);
-    // 
-    // // Execute the transfer
-    // // This will automatically revert on failure (insufficient balance, etc.)
-    // token.transfer(&contract_address, recipient, &amount);
-    //
-    // The transfer operation in Soroban is atomic - if it fails, all state
-    // changes are automatically reverted by the Soroban runtime.
-    
-    // For MVP: Log the transfer details (in production, this would be the actual transfer)
-    // The actual transfer would be handled by the Stellar token contract
-    let _from = contract_address;
-    let _to = recipient.clone();
-    let _transfer_amount = amount;
-    
-    // In production, any transfer failure would cause a panic/revert
-    // For now, we return success to allow testing the payout flow
-    // TODO: Implement actual token transfer when token integration is ready
-    
+
+    let token_config_key = StorageKeyBuilder::group_token_config(group_id);
+    let token_config: crate::group::TokenConfig = env
+        .storage()
+        .persistent()
+        .get(&token_config_key)
+        .ok_or(StellarSaveError::GroupNotFound)?;
+
+    let token_client = soroban_sdk::token::TokenClient::new(env, &token_config.token_address);
+    let contract_address = env.current_contract_address();
+
+    // transfer panics on failure; Soroban reverts all state changes atomically
+    token_client.transfer(&contract_address, recipient, &amount);
+
     Ok(())
 }
 /// Creates and stores an immutable payout record.
