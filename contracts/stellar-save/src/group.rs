@@ -191,6 +191,18 @@ pub struct Group {
     /// Used for tracking when the first cycle started.
     /// Only set when started is true.
     pub started_at: u64,
+
+    /// Human-readable name for the group (3-50 characters).
+    /// Used for discovery and identification.
+    pub name: String,
+
+    /// Detailed description of the group (0-500 characters).
+    /// Provides context about the group's purpose and goals.
+    pub description: String,
+
+    /// URL to an image representing the group.
+    /// Used for visual identification in the UI.
+    pub image_url: String,
 }
 
 impl Group {
@@ -256,6 +268,9 @@ impl Group {
             created_at,
             started: false,
             started_at: 0,
+            name: String::new(),
+            description: String::new(),
+            image_url: String::new(),
         }
     }
 

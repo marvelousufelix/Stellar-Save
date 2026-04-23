@@ -527,6 +527,81 @@ impl StellarSaveContract {
             .ok_or(StellarSaveError::GroupNotFound)
     }
 
+    /// Updates the metadata of a group (name, description, image_url).
+    ///
+    /// # Arguments
+    /// * `group_id` - The unique identifier of the group.
+    /// * `caller` - The address attempting to update metadata (must be creator).
+    /// * `name` - New group name (3-50 characters).
+    /// * `description` - New group description (0-500 characters).
+    /// * `image_url` - New group image URL.
+    ///
+    /// # Returns
+    /// Returns Ok(()) if successful, or an error if validation fails.
+    ///
+    /// # Validation
+    /// - Caller must be the group creator
+    /// - Name must be 3-50 characters
+    /// - Description must be 0-500 characters
+    /// - Emits GroupMetadataUpdated event on success
+    pub fn update_group_metadata(
+        env: Env,
+        group_id: u64,
+        caller: Address,
+        name: String,
+        description: String,
+        image_url: String,
+    ) -> Result<(), StellarSaveError> {
+        // 1. Verify caller is authorized
+        caller.require_auth();
+
+        // 2. Load existing group
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        let mut group = env
+            .storage()
+            .persistent()
+            .get::<_, Group>(&group_key)
+            .ok_or(StellarSaveError::GroupNotFound)?;
+
+        // 3. Verify caller is the creator
+        if group.creator != caller {
+            return Err(StellarSaveError::Unauthorized);
+        }
+
+        // 4. Validate metadata
+        // Name: 3-50 characters
+        if name.len() < 3 || name.len() > 50 {
+            return Err(StellarSaveError::InvalidMetadata);
+        }
+
+        // Description: 0-500 characters
+        if description.len() > 500 {
+            return Err(StellarSaveError::InvalidMetadata);
+        }
+
+        // 5. Update group metadata
+        group.name = name.clone();
+        group.description = description.clone();
+        group.image_url = image_url.clone();
+
+        // 6. Save updated group
+        env.storage().persistent().set(&group_key, &group);
+
+        // 7. Emit event
+        let timestamp = env.ledger().timestamp();
+        EventEmitter::emit_group_metadata_updated(
+            &env,
+            group_id,
+            caller,
+            name,
+            description,
+            image_url,
+            timestamp,
+        );
+
+        Ok(())
+    }
+
     /// Checks if a member has already received their payout in a group.
     ///
     /// # Arguments
@@ -8864,5 +8939,245 @@ mod tests {
         assert_eq!(GroupStatus::from_u32(3), Some(GroupStatus::Completed));
         assert_eq!(GroupStatus::from_u32(4), Some(GroupStatus::Cancelled));
         assert_eq!(GroupStatus::from_u32(5), None);
+    }
+
+    #[test]
+    fn test_update_group_metadata_success() {
+        let env = Env::default();
+        let creator = Address::random(&env);
+        let group_id = 1u64;
+
+        // Create a group
+        let group = Group::new(
+            group_id,
+            creator.clone(),
+            1_000_000,
+            604800,
+            10,
+            2,
+            env.ledger().timestamp(),
+        );
+
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        env.storage().persistent().set(&group_key, &group);
+
+        // Update metadata
+        let result = StellarSaveContract::update_group_metadata(
+            env.clone(),
+            group_id,
+            creator.clone(),
+            String::from_small_str("Test Group"),
+            String::from_small_str("A test group for ROSCA"),
+            String::from_small_str("https://example.com/image.png"),
+        );
+
+        assert!(result.is_ok());
+
+        // Verify metadata was updated
+        let updated_group = env
+            .storage()
+            .persistent()
+            .get::<_, Group>(&group_key)
+            .unwrap();
+        assert_eq!(updated_group.name, String::from_small_str("Test Group"));
+        assert_eq!(
+            updated_group.description,
+            String::from_small_str("A test group for ROSCA")
+        );
+        assert_eq!(
+            updated_group.image_url,
+            String::from_small_str("https://example.com/image.png")
+        );
+    }
+
+    #[test]
+    fn test_update_group_metadata_name_too_short() {
+        let env = Env::default();
+        let creator = Address::random(&env);
+        let group_id = 1u64;
+
+        let group = Group::new(
+            group_id,
+            creator.clone(),
+            1_000_000,
+            604800,
+            10,
+            2,
+            env.ledger().timestamp(),
+        );
+
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        env.storage().persistent().set(&group_key, &group);
+
+        let result = StellarSaveContract::update_group_metadata(
+            env,
+            group_id,
+            creator,
+            String::from_small_str("AB"),
+            String::from_small_str("Description"),
+            String::from_small_str("https://example.com/image.png"),
+        );
+
+        assert_eq!(result, Err(StellarSaveError::InvalidMetadata));
+    }
+
+    #[test]
+    fn test_update_group_metadata_name_too_long() {
+        let env = Env::default();
+        let creator = Address::random(&env);
+        let group_id = 1u64;
+
+        let group = Group::new(
+            group_id,
+            creator.clone(),
+            1_000_000,
+            604800,
+            10,
+            2,
+            env.ledger().timestamp(),
+        );
+
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        env.storage().persistent().set(&group_key, &group);
+
+        // Create a name longer than 50 characters
+        let long_name = String::from_small_str("This is a very long group name that exceeds fifty");
+        assert!(long_name.len() > 50);
+
+        let result = StellarSaveContract::update_group_metadata(
+            env,
+            group_id,
+            creator,
+            long_name,
+            String::from_small_str("Description"),
+            String::from_small_str("https://example.com/image.png"),
+        );
+
+        assert_eq!(result, Err(StellarSaveError::InvalidMetadata));
+    }
+
+    #[test]
+    fn test_update_group_metadata_description_too_long() {
+        let env = Env::default();
+        let creator = Address::random(&env);
+        let group_id = 1u64;
+
+        let group = Group::new(
+            group_id,
+            creator.clone(),
+            1_000_000,
+            604800,
+            10,
+            2,
+            env.ledger().timestamp(),
+        );
+
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        env.storage().persistent().set(&group_key, &group);
+
+        // Create a description longer than 500 characters
+        let long_desc = String::from_small_str(
+            "This is a very long description that exceeds the maximum allowed length of five hundred characters. It contains a lot of text to ensure it goes over the limit. This is a very long description that exceeds the maximum allowed length of five hundred characters. It contains a lot of text to ensure it goes over the limit. This is a very long description that exceeds the maximum allowed length of five hundred characters. It contains a lot of text to ensure it goes over the limit.",
+        );
+        assert!(long_desc.len() > 500);
+
+        let result = StellarSaveContract::update_group_metadata(
+            env,
+            group_id,
+            creator,
+            String::from_small_str("Test Group"),
+            long_desc,
+            String::from_small_str("https://example.com/image.png"),
+        );
+
+        assert_eq!(result, Err(StellarSaveError::InvalidMetadata));
+    }
+
+    #[test]
+    fn test_update_group_metadata_unauthorized() {
+        let env = Env::default();
+        let creator = Address::random(&env);
+        let other_user = Address::random(&env);
+        let group_id = 1u64;
+
+        let group = Group::new(
+            group_id,
+            creator,
+            1_000_000,
+            604800,
+            10,
+            2,
+            env.ledger().timestamp(),
+        );
+
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        env.storage().persistent().set(&group_key, &group);
+
+        let result = StellarSaveContract::update_group_metadata(
+            env,
+            group_id,
+            other_user,
+            String::from_small_str("Test Group"),
+            String::from_small_str("Description"),
+            String::from_small_str("https://example.com/image.png"),
+        );
+
+        assert_eq!(result, Err(StellarSaveError::Unauthorized));
+    }
+
+    #[test]
+    fn test_update_group_metadata_group_not_found() {
+        let env = Env::default();
+        let creator = Address::random(&env);
+
+        let result = StellarSaveContract::update_group_metadata(
+            env,
+            999u64,
+            creator,
+            String::from_small_str("Test Group"),
+            String::from_small_str("Description"),
+            String::from_small_str("https://example.com/image.png"),
+        );
+
+        assert_eq!(result, Err(StellarSaveError::GroupNotFound));
+    }
+
+    #[test]
+    fn test_update_group_metadata_empty_description_valid() {
+        let env = Env::default();
+        let creator = Address::random(&env);
+        let group_id = 1u64;
+
+        let group = Group::new(
+            group_id,
+            creator.clone(),
+            1_000_000,
+            604800,
+            10,
+            2,
+            env.ledger().timestamp(),
+        );
+
+        let group_key = StorageKeyBuilder::group_data(group_id);
+        env.storage().persistent().set(&group_key, &group);
+
+        // Empty description should be valid (0-500 chars)
+        let result = StellarSaveContract::update_group_metadata(
+            env.clone(),
+            group_id,
+            creator,
+            String::from_small_str("Test Group"),
+            String::new(),
+            String::from_small_str("https://example.com/image.png"),
+        );
+
+        assert!(result.is_ok());
+
+        let updated_group = env
+            .storage()
+            .persistent()
+            .get::<_, Group>(&group_key)
+            .unwrap();
+        assert_eq!(updated_group.description, String::new());
     }
 }
